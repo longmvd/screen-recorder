@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chrome Tab Screen Recorder</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --primary-color: #3498db;
+        --primary-dark: #2980b9;
+        --accent-color: #e74c3c;
+        --success-color: #2ecc71;
+        --text-color: #333;
+        --text-light: #666;
+        --bg-color: #f9f9f9;
+        --card-bg: #fff;
+        --border-color: #ddd;
+        --shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        --border-radius: 6px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: "Roboto", sans-serif;
+        line-height: 1.6;
+        color: var(--text-color);
+        background-color: var(--bg-color);
+      }
+
+      h1,
+      h2 {
+        color: var(--text-color);
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        font-size: 28px;
+        border-bottom: 2px solid var(--primary-color);
+        padding-bottom: 10px;
+      }
+
+      h2 {
+        font-size: 20px;
+        position: relative;
+      }
+
+      .app-container {
+        max-width: 80vw;
+        margin: 0 auto;
+        height: 100vh;
+        padding: 20px;
+      }
+
+      .card {
+        background-color: var(--card-bg);
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        padding: 20px;
+        /* margin-bottom: 20px; */
+      }
+
+      .controls-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 20px;
+        align-items: center;
+      }
+
+      .quality-selector {
+        display: flex;
+        align-items: center;
+        margin-right: 20px;
+      }
+
+      .quality-selector label {
+        margin-right: 10px;
+        font-weight: 500;
+      }
+
+      select {
+        padding: 8px 12px;
+        border-radius: var(--border-radius);
+        border: 1px solid var(--border-color);
+        background-color: white;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      select:focus {
+        outline: none;
+        border-color: var(--primary-color);
+      }
+
+      button {
+        padding: 10px 15px;
+        border: none;
+        border-radius: var(--border-radius);
+        background-color: var(--primary-color);
+        color: white;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.2s, transform 0.1s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+
+      button:hover {
+        background-color: var(--primary-dark);
+      }
+
+      button:active {
+        transform: translateY(1px);
+      }
+
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+        opacity: 0.7;
+      }
+
+      button:disabled:hover {
+        background-color: #cccccc;
+      }
+
+      #startBtn {
+        background-color: var(--success-color);
+      }
+
+      #startBtn:hover {
+        background-color: #27ae60;
+      }
+
+      #stopBtn {
+        background-color: var(--accent-color);
+      }
+
+      #stopBtn:hover {
+        background-color: #c0392b;
+      }
+
+      .video-container {
+        margin: 20px 0;
+        border-radius: var(--border-radius);
+        overflow: hidden;
+        background-color: #000;
+        box-shadow: var(--shadow);
+        position: relative;
+      }
+
+      #preview {
+        width: 100%;
+        display: none;
+        background-color: #000;
+        max-height: 500px;
+      }
+
+      .recording-indicator {
+        position: absolute;
+        top: 15px;
+        left: 15px;
+        color: var(--accent-color);
+        display: none;
+        align-items: center;
+        gap: 5px;
+        background-color: rgba(0, 0, 0, 0.5);
+        padding: 5px 10px;
+        border-radius: 20px;
+      }
+
+      .pulse {
+        width: 10px;
+        height: 10px;
+        background-color: var(--accent-color);
+        border-radius: 50%;
+        animation: pulse 1.5s infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          transform: scale(0.95);
+          box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7);
+        }
+        70% {
+          transform: scale(1);
+          box-shadow: 0 0 0 10px rgba(231, 76, 60, 0);
+        }
+        100% {
+          transform: scale(0.95);
+          box-shadow: 0 0 0 0 rgba(231, 76, 60, 0);
+        }
+      }
+
+      .recordings-container {
+        /* margin-top: 20px; */
+        margin-left: 20px;
+      }
+
+      .recordings-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+
+      #recordings-list {
+        max-height: 500px;
+        overflow-y: auto;
+        border-radius: var(--border-radius);
+        padding: 5px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--primary-color) var(--bg-color);
+      }
+
+      #recordings-list::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      #recordings-list::-webkit-scrollbar-track {
+        background: var(--bg-color);
+      }
+
+      #recordings-list::-webkit-scrollbar-thumb {
+        background-color: var(--primary-color);
+        border-radius: 20px;
+      }
+
+      .recording-item {
+        margin-bottom: 10px;
+        padding: 12px 15px;
+        border-radius: var(--border-radius);
+        background-color: var(--card-bg);
+        box-shadow: var(--shadow);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: transform 0.2s;
+      }
+
+      .recording-item:hover {
+        transform: translateX(3px);
+      }
+
+      .recording-info {
+        flex-grow: 1;
+      }
+
+      .recording-info strong {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--primary-color);
+      }
+
+      .recording-info span {
+        display: block;
+        font-size: 13px;
+        color: var(--text-light);
+        margin-bottom: 2px;
+      }
+
+      .recording-actions {
+        display: flex;
+        gap: 5px;
+      }
+
+      .recording-actions button {
+        padding: 6px 10px;
+        font-size: 13px;
+      }
+
+      .play-btn {
+        background-color: var(--primary-color);
+      }
+
+      .download-btn {
+        background-color: var(--success-color);
+      }
+
+      .delete-btn {
+        background-color: var(--accent-color);
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 10px;
+        }
+
+        .controls-container {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .quality-selector {
+          margin-right: 0;
+          margin-bottom: 10px;
+        }
+
+        .recording-item {
+          flex-direction: column;
+        }
+
+        .recording-info {
+          margin-bottom: 10px;
+        }
+
+        .recording-actions {
+          width: 100%;
+          justify-content: space-between;
+        }
+      }
+
+      .flex {
+        display: flex;
+      }
+      .flex-column {
+        flex-direction: column;
+      }
+      .flex-row {
+        flex-direction: row;
+      }
+      .flex-center {
+        justify-content: center;
+        align-items: center;
+      }
+      .flex-space-between {
+        justify-content: space-between;
+      }
+      .flex-space-around {
+        justify-content: space-around;
+      }
+      .flex-1 {
+        flex: 1;
+      }
+    </style>
+    
+  </head>
+  <body>
+    <div class="flex flex-column app-container">
+      <h1>Chrome Tab Screen Recorder</h1>
+
+      <div class="flex flex-1">
+        <div class="card">
+          <div class="controls-container">
+            <div class="quality-selector">
+              <label for="quality">Recording Quality:</label>
+              <select id="quality">
+                <option value="standard">Standard (720p)</option>
+                <option value="fullhd" selected>Full HD (1080p)</option>
+                <option value="ultrahd">Ultra HD (4K) if supported</option>
+              </select>
+            </div>
+
+            <button id="startBtn">
+              <i class="fas fa-play"></i> Start Recording
+            </button>
+            <button id="stopBtn" disabled>
+              <i class="fas fa-stop"></i> Stop Recording
+            </button>
+            <button id="downloadBtn" disabled>
+              <i class="fas fa-download"></i> Download
+            </button>
+          </div>
+
+          <div class="video-container">
+            <div class="recording-indicator" id="recordingIndicator">
+              <div class="pulse"></div>
+              RECORDING
+            </div>
+            <video id="preview" controls autoplay muted></video>
+          </div>
+        </div>
+
+        <div class="card recordings-container">
+          <div class="recordings-header">
+            <h2>Recording History</h2>
+          </div>
+          <div id="recordings-list">
+            <!-- Recording items will be added here dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      let mediaRecorder;
+      let recordedChunks = [];
+      let stream;
+      let recordingBlob;
+      let recordingUrl;
+      let recordingFilename;
+      let recordingQuality;
+      let db;
+
+      // Initialize IndexedDB
+      const DB_NAME = "ScreenRecorderDB";
+      const DB_VERSION = 1;
+      const STORE_NAME = "recordings";
+
+      function initIndexedDB() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+          request.onerror = (event) => {
+            console.error("IndexedDB error:", event.target.error);
+            reject("Error opening IndexedDB");
+          };
+
+          request.onsuccess = (event) => {
+            db = event.target.result;
+            console.log("IndexedDB initialized successfully");
+            resolve(db);
+          };
+
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              const store = db.createObjectStore(STORE_NAME, {
+                keyPath: "id",
+                autoIncrement: true,
+              });
+              store.createIndex("date", "date", { unique: false });
+              console.log("Object store created");
+            }
+          };
+        });
+      }
+
+      // Save recording to IndexedDB
+      function saveRecordingToDB(blob, filename, quality) {
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject("Database not initialized");
+            return;
+          }
+
+          const transaction = db.transaction([STORE_NAME], "readwrite");
+          const store = transaction.objectStore(STORE_NAME);
+
+          const recording = {
+            blob: blob,
+            filename: filename,
+            date: new Date(),
+            quality: quality,
+            type: blob.type,
+          };
+
+          const request = store.add(recording);
+
+          request.onsuccess = () => {
+            console.log("Recording saved to IndexedDB");
+            resolve(request.result); // Returns the key
+          };
+
+          request.onerror = (event) => {
+            console.error("Error saving recording:", event.target.error);
+            reject("Failed to save recording");
+          };
+        });
+      }
+
+      // Load recordings from IndexedDB
+      function loadRecordingsFromDB() {
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject("Database not initialized");
+            return;
+          }
+
+          const transaction = db.transaction([STORE_NAME], "readonly");
+          const store = transaction.objectStore(STORE_NAME);
+          const index = store.index("date");
+          const request = index.openCursor(null, "prev"); // Sort by date, newest first
+
+          const recordings = [];
+
+          request.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (cursor) {
+              recordings.push(cursor.value);
+              cursor.continue();
+            } else {
+              resolve(recordings);
+            }
+          };
+
+          request.onerror = (event) => {
+            console.error("Error loading recordings:", event.target.error);
+            reject("Failed to load recordings");
+          };
+        });
+      }
+
+      // Delete recording from IndexedDB
+      function deleteRecordingFromDB(id) {
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject("Database not initialized");
+            return;
+          }
+
+          const transaction = db.transaction([STORE_NAME], "readwrite");
+          const store = transaction.objectStore(STORE_NAME);
+          const request = store.delete(id);
+
+          request.onsuccess = () => {
+            console.log("Recording deleted from IndexedDB");
+            resolve();
+          };
+
+          request.onerror = (event) => {
+            console.error("Error deleting recording:", event.target.error);
+            reject("Failed to delete recording");
+          };
+        });
+      }
+
+      // Update recordings list in the UI
+      function updateRecordingsList() {
+        loadRecordingsFromDB()
+          .then((recordings) => {
+            const recordingsList = document.getElementById("recordings-list");
+            recordingsList.innerHTML = "";
+
+            if (recordings.length === 0) {
+              recordingsList.innerHTML = "<p>No saved recordings found.</p>";
+              return;
+            }
+
+            recordings.forEach((recording) => {
+              const url = URL.createObjectURL(recording.blob);
+              const item = document.createElement("div");
+              item.className = "recording-item";
+
+              const qualityLabel =
+                recording.quality === "standard"
+                  ? "Standard (720p)"
+                  : recording.quality === "fullhd"
+                  ? "Full HD (1080p)"
+                  : recording.quality === "ultrahd"
+                  ? "Ultra HD (4K)"
+                  : "Unknown";
+
+              const date = new Date(recording.date);
+              const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+
+              item.innerHTML = `
+              <div class="recording-info">
+                <strong>${recording.filename}</strong><br>
+                <span>Recorded: ${formattedDate}</span><br>
+                <span>Quality: ${qualityLabel}</span>
+              </div>
+              <div class="recording-actions">
+                <button class="play-btn" data-url="${url}"><i class="fas fa-play"></i> Play</button>
+                <button class="download-btn" data-url="${url}" data-filename="${recording.filename}"><i class="fas fa-download"></i> Download</button>
+                <button class="delete-btn" data-id="${recording.id}"><i class="fas fa-trash"></i> Delete</button>
+              </div>
+            `;
+
+              recordingsList.appendChild(item);
+
+              // Add event listeners
+              item.querySelector(".play-btn").addEventListener("click", () => {
+                preview.src = url;
+                preview.style.display = "block";
+                preview.muted = false;
+                preview.play();
+              });
+
+              item
+                .querySelector(".download-btn")
+                .addEventListener("click", () => {
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = recording.filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  setTimeout(() => {
+                    document.body.removeChild(a);
+                  }, 100);
+                });
+
+              item
+                .querySelector(".delete-btn")
+                .addEventListener("click", () => {
+                  deleteRecordingFromDB(recording.id)
+                    .then(() => {
+                      URL.revokeObjectURL(url);
+                      updateRecordingsList();
+                    })
+                    .catch((error) =>
+                      console.error("Error deleting recording:", error)
+                    );
+                });
+            });
+          })
+          .catch((error) =>
+            console.error("Error updating recordings list:", error)
+          );
+      }
+
+      // Initialize database on page load
+      window.addEventListener("DOMContentLoaded", () => {
+        initIndexedDB()
+          .then(() => {
+            updateRecordingsList();
+          })
+          .catch((error) => {
+            console.error("Failed to initialize IndexedDB:", error);
+            document.getElementById("recordings-list").innerHTML =
+              "<p>Could not access local storage. Your recordings will not be saved between sessions.</p>";
+          });
+      });
+
+      // Function to generate timestamped filename
+      function generateFilename() {
+        const now = new Date();
+        const date = now.toISOString().split("T")[0];
+        const time = now.toTimeString().split(" ")[0].replace(/:/g, "-");
+        return `recording-${date}-${time}.webm`;
+      }
+
+      // Helper function to get video constraints based on quality
+      function getVideoConstraints(quality) {
+        switch (quality) {
+          case "ultrahd":
+            return { width: { ideal: 3840 }, height: { ideal: 2160 } };
+          case "fullhd":
+            return { width: { ideal: 1920 }, height: { ideal: 1080 } };
+          default: // standard
+            return { width: { ideal: 1280 }, height: { ideal: 720 } };
+        }
+      }
+
+      // Helper function to get recorder options based on quality
+      function getMediaRecorderOptions(quality) {
+        const options = {};
+
+        // Try to use VP9 codec if supported
+        if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) {
+          options.mimeType = "video/webm;codecs=vp9";
+        } else if (MediaRecorder.isTypeSupported("video/webm")) {
+          options.mimeType = "video/webm";
+        }
+
+        // Set bitrate based on quality
+        switch (quality) {
+          case "ultrahd":
+            options.videoBitsPerSecond = 6000000; // 6 Mbps
+            break;
+          case "fullhd":
+            options.videoBitsPerSecond = 2500000; // 2.5 Mbps
+            break;
+          default: // standard
+            options.videoBitsPerSecond = 1500000; // 1.5 Mbps
+        }
+
+        return options;
+      }
+
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const preview = document.getElementById("preview");
+
+      startBtn.onclick = async () => {
+        // Get the selected quality
+        const quality = document.getElementById("quality").value;
+
+        // Set constraints based on quality selection
+        const videoConstraints = getVideoConstraints(quality);
+
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: videoConstraints,
+          audio: true,
+        });
+
+        preview.muted = true; // Mute the preview to avoid feedback
+        preview.srcObject = stream;
+        preview.style.display = "block";
+
+        recordedChunks = [];
+
+        // Configure MediaRecorder with quality options
+        const recorderOptions = getMediaRecorderOptions(quality);
+        mediaRecorder = new MediaRecorder(stream, recorderOptions);
+
+        mediaRecorder.ondataavailable = function (event) {
+          if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = function () {
+          recordingBlob = new Blob(recordedChunks, { type: "video/webm" });
+          recordingUrl = URL.createObjectURL(recordingBlob);
+          recordingFilename = generateFilename();
+          recordingQuality = document.getElementById("quality").value;
+
+          // Automatically download the recording
+          const a = document.createElement("a");
+          a.href = recordingUrl;
+          a.download = recordingFilename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+          }, 100);
+
+          // Switch from live preview to recorded video preview
+          preview.srcObject = null;
+          preview.src = recordingUrl;
+          preview.style.display = "block";
+          preview.muted = false; // Unmute when showing the recorded video
+
+          // Enable the download button
+          downloadBtn.disabled = false;
+
+          // Save recording to IndexedDB
+          saveRecordingToDB(recordingBlob, recordingFilename, recordingQuality)
+            .then(() => {
+              console.log("Recording saved successfully");
+              updateRecordingsList();
+            })
+            .catch((error) => {
+              console.error("Error saving recording:", error);
+            });
+        };
+
+        // Show recording indicator
+        const recordingIndicator =
+          document.getElementById("recordingIndicator");
+        recordingIndicator.style.display = "flex";
+
+        mediaRecorder.start();
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+      };
+
+      stopBtn.onclick = () => {
+        mediaRecorder.stop();
+        stream.getTracks().forEach((track) => track.stop());
+
+        // Hide recording indicator
+        document.getElementById("recordingIndicator").style.display = "none";
+
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      };
+
+      downloadBtn.onclick = () => {
+        if (recordingBlob && recordingUrl) {
+          const a = document.createElement("a");
+          a.href = recordingUrl;
+          a.download = recordingFilename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+          }, 100);
+        }
+      };
+    </script>
+  </body>
+</html>
