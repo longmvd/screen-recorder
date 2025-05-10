@@ -27,6 +27,7 @@
         --border-color: #ddd;
         --shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
         --border-radius: 6px;
+        --thumbnail-size: 80px;
       }
 
       * {
@@ -36,7 +37,7 @@
       }
 
       body {
-        font-family: "Roboto", sans-serif;
+        font-family: 'Roboto', sans-serif;
         line-height: 1.6;
         color: var(--text-color);
         background-color: var(--bg-color);
@@ -60,7 +61,7 @@
       }
 
       .app-container {
-        max-width: 80vw;
+        max-width: 96vw;
         margin: 0 auto;
         height: 100vh;
         padding: 20px;
@@ -77,7 +78,7 @@
       .controls-container {
         display: flex;
         flex-wrap: wrap;
-        gap: 15px;
+        gap: 12px;
         margin-bottom: 20px;
         align-items: center;
       }
@@ -250,12 +251,28 @@
         box-shadow: var(--shadow);
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         transition: transform 0.2s;
       }
 
       .recording-item:hover {
         transform: translateX(3px);
+      }
+
+      .recording-thumbnail {
+        width: var(--thumbnail-size);
+        height: calc(var(--thumbnail-size) * 9 / 16);
+        background-color: #000;
+        border-radius: 4px;
+        margin-right: 12px;
+        object-fit: cover;
+        flex-shrink: 0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
+
+      .recording-content {
+        display: flex;
+        flex-grow: 1;
       }
 
       .recording-info {
@@ -266,6 +283,9 @@
         display: block;
         margin-bottom: 5px;
         color: var(--primary-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .recording-info span {
@@ -325,6 +345,9 @@
           justify-content: space-between;
         }
       }
+      .recording-name {
+        max-width: 300px;
+      }
 
       .flex {
         display: flex;
@@ -348,15 +371,17 @@
       .flex-1 {
         flex: 1;
       }
+      .gap-12 {
+        gap: 12px;
+      }
     </style>
-    
   </head>
   <body>
     <div class="flex flex-column app-container">
       <h1>Chrome Tab Screen Recorder</h1>
 
       <div class="flex flex-1">
-        <div class="card">
+        <div class="card flex-1">
           <div class="controls-container">
             <div class="quality-selector">
               <label for="quality">Recording Quality:</label>
@@ -366,16 +391,15 @@
                 <option value="ultrahd">Ultra HD (4K) if supported</option>
               </select>
             </div>
-
-            <button id="startBtn">
-              <i class="fas fa-play"></i> Start Recording
-            </button>
-            <button id="stopBtn" disabled>
-              <i class="fas fa-stop"></i> Stop Recording
-            </button>
-            <button id="downloadBtn" disabled>
-              <i class="fas fa-download"></i> Download
-            </button>
+            <div class="flex gap-12">
+              <button id="startBtn"><i class="fas fa-play"></i> Start</button>
+              <button id="stopBtn" disabled>
+                <i class="fas fa-stop"></i> Stop
+              </button>
+              <button id="downloadBtn" disabled>
+                <i class="fas fa-download"></i> Download
+              </button>
+            </div>
           </div>
 
           <div class="video-container">
@@ -408,22 +432,22 @@
       let db;
 
       // Initialize IndexedDB
-      const DB_NAME = "ScreenRecorderDB";
+      const DB_NAME = 'ScreenRecorderDB';
       const DB_VERSION = 1;
-      const STORE_NAME = "recordings";
+      const STORE_NAME = 'recordings';
 
       function initIndexedDB() {
         return new Promise((resolve, reject) => {
           const request = indexedDB.open(DB_NAME, DB_VERSION);
 
           request.onerror = (event) => {
-            console.error("IndexedDB error:", event.target.error);
-            reject("Error opening IndexedDB");
+            console.error('IndexedDB error:', event.target.error);
+            reject('Error opening IndexedDB');
           };
 
           request.onsuccess = (event) => {
             db = event.target.result;
-            console.log("IndexedDB initialized successfully");
+            console.log('IndexedDB initialized successfully');
             resolve(db);
           };
 
@@ -431,11 +455,11 @@
             const db = event.target.result;
             if (!db.objectStoreNames.contains(STORE_NAME)) {
               const store = db.createObjectStore(STORE_NAME, {
-                keyPath: "id",
+                keyPath: 'id',
                 autoIncrement: true,
               });
-              store.createIndex("date", "date", { unique: false });
-              console.log("Object store created");
+              store.createIndex('date', 'date', { unique: false });
+              console.log('Object store created');
             }
           };
         });
@@ -445,32 +469,67 @@
       function saveRecordingToDB(blob, filename, quality) {
         return new Promise((resolve, reject) => {
           if (!db) {
-            reject("Database not initialized");
+            reject('Database not initialized');
             return;
           }
 
-          const transaction = db.transaction([STORE_NAME], "readwrite");
-          const store = transaction.objectStore(STORE_NAME);
+          // Generate thumbnail first
+          generateThumbnail(blob)
+            .then((thumbnailUrl) => {
+              const transaction = db.transaction([STORE_NAME], 'readwrite');
+              const store = transaction.objectStore(STORE_NAME);
 
-          const recording = {
-            blob: blob,
-            filename: filename,
-            date: new Date(),
-            quality: quality,
-            type: blob.type,
-          };
+              const recording = {
+                blob: blob,
+                filename: filename,
+                date: new Date(),
+                quality: quality,
+                type: blob.type,
+                thumbnail: thumbnailUrl, // Store the thumbnail with the recording
+              };
 
-          const request = store.add(recording);
+              const request = store.add(recording);
 
-          request.onsuccess = () => {
-            console.log("Recording saved to IndexedDB");
-            resolve(request.result); // Returns the key
-          };
+              request.onsuccess = () => {
+                console.log('Recording saved to IndexedDB with thumbnail');
+                resolve(request.result); // Returns the key
+              };
 
-          request.onerror = (event) => {
-            console.error("Error saving recording:", event.target.error);
-            reject("Failed to save recording");
-          };
+              request.onerror = (event) => {
+                console.error('Error saving recording:', event.target.error);
+                reject('Failed to save recording');
+              };
+            })
+            .catch((error) => {
+              console.error(
+                'Error generating thumbnail, saving without it:',
+                error
+              );
+
+              // If thumbnail generation fails, save without it
+              const transaction = db.transaction([STORE_NAME], 'readwrite');
+              const store = transaction.objectStore(STORE_NAME);
+
+              const recording = {
+                blob: blob,
+                filename: filename,
+                date: new Date(),
+                quality: quality,
+                type: blob.type,
+              };
+
+              const request = store.add(recording);
+
+              request.onsuccess = () => {
+                console.log('Recording saved to IndexedDB without thumbnail');
+                resolve(request.result);
+              };
+
+              request.onerror = (event) => {
+                console.error('Error saving recording:', event.target.error);
+                reject('Failed to save recording');
+              };
+            });
         });
       }
 
@@ -478,14 +537,14 @@
       function loadRecordingsFromDB() {
         return new Promise((resolve, reject) => {
           if (!db) {
-            reject("Database not initialized");
+            reject('Database not initialized');
             return;
           }
 
-          const transaction = db.transaction([STORE_NAME], "readonly");
+          const transaction = db.transaction([STORE_NAME], 'readonly');
           const store = transaction.objectStore(STORE_NAME);
-          const index = store.index("date");
-          const request = index.openCursor(null, "prev"); // Sort by date, newest first
+          const index = store.index('date');
+          const request = index.openCursor(null, 'prev'); // Sort by date, newest first
 
           const recordings = [];
 
@@ -500,8 +559,8 @@
           };
 
           request.onerror = (event) => {
-            console.error("Error loading recordings:", event.target.error);
-            reject("Failed to load recordings");
+            console.error('Error loading recordings:', event.target.error);
+            reject('Failed to load recordings');
           };
         });
       }
@@ -510,22 +569,215 @@
       function deleteRecordingFromDB(id) {
         return new Promise((resolve, reject) => {
           if (!db) {
-            reject("Database not initialized");
+            reject('Database not initialized');
             return;
           }
 
-          const transaction = db.transaction([STORE_NAME], "readwrite");
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
           const store = transaction.objectStore(STORE_NAME);
           const request = store.delete(id);
 
           request.onsuccess = () => {
-            console.log("Recording deleted from IndexedDB");
+            console.log('Recording deleted from IndexedDB');
             resolve();
           };
 
           request.onerror = (event) => {
-            console.error("Error deleting recording:", event.target.error);
-            reject("Failed to delete recording");
+            console.error('Error deleting recording:', event.target.error);
+            reject('Failed to delete recording');
+          };
+        });
+      }
+
+      // Generate thumbnail from video blob
+      function generateThumbnail(videoBlob) {
+        return new Promise((resolve, reject) => {
+          const video = document.createElement('video');
+          video.style.display = 'none';
+          video.setAttribute('crossorigin', 'anonymous');
+          document.body.appendChild(video);
+
+          // Set up a timeout to avoid hanging forever
+          const timeoutId = setTimeout(() => {
+            cleanUp();
+            console.log('Thumbnail generation timed out, using placeholder');
+            resolve(null); // Resolve with null to use placeholder
+          }, 10000); // 10 second timeout
+
+          function cleanUp() {
+            clearTimeout(timeoutId);
+            if (videoUrl) {
+              URL.revokeObjectURL(videoUrl);
+            }
+            if (document.body.contains(video)) {
+              document.body.removeChild(video);
+            }
+          }
+
+          // This will fire when the video can actually play
+          video.addEventListener('loadeddata', function () {
+            console.log('Video data loaded');
+            // Wait a bit for video to stabilize
+            setTimeout(() => {
+              try {
+                // Seek to 1 second into the video for a non-black frame
+                if (video.duration && video.duration !== Infinity) {
+                  // If we have a valid duration, go to 1 second or 10% in, whichever is less
+                  video.currentTime = Math.min(1, video.duration * 0.1);
+                } else {
+                  // If duration is unknown, just try 1 second
+                  video.currentTime = 1;
+                }
+              } catch (e) {
+                console.error('Error seeking video:', e);
+              }
+            }, 500);
+          });
+
+          // Listen for the seek to complete
+          video.addEventListener('seeked', function () {
+            console.log('Video seeked to position:', video.currentTime);
+            setTimeout(() => {
+              try {
+                // Now capture the thumbnail
+                const canvas = document.createElement('canvas');
+                // Use 16:9 aspect ratio
+                const width = 320;
+                const height = 180;
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, width, height);
+
+                // Convert to base64 data URL
+                const thumbnailDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+                // Clean up
+                cleanUp();
+
+                if (thumbnailDataUrl.length < 100) {
+                  // If we got an empty or very small data URL, it's likely a black frame
+                  console.log(
+                    'Generated thumbnail appears to be a black frame, using placeholder'
+                  );
+                  resolve(null);
+                } else {
+                  console.log('Thumbnail generated successfully');
+                  resolve(thumbnailDataUrl);
+                }
+              } catch (error) {
+                console.error('Error capturing thumbnail:', error);
+                cleanUp();
+                resolve(null); // Use placeholder image
+              }
+            }, 300); // Give a little time to render the frame
+          });
+
+          video.addEventListener('error', function (e) {
+            console.error('Video error during thumbnail generation:', e);
+            cleanUp();
+            resolve(null); // Use placeholder image
+          });
+
+          // Start loading the video
+          const videoUrl = URL.createObjectURL(videoBlob);
+          video.src = videoUrl;
+          video.muted = true;
+          video.load(); // Explicitly load the video
+
+          console.log('Started loading video for thumbnail generation');
+        });
+      }
+
+      // Update existing recording with thumbnail
+      function updateRecordingWithThumbnail(id, url) {
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject('Database not initialized');
+            return;
+          }
+
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          const getRequest = store.get(id);
+
+          getRequest.onsuccess = () => {
+            const recording = getRequest.result;
+            if (!recording) {
+              reject('Recording not found');
+              return;
+            }
+
+            // Add thumbnail to recording
+            recording.thumbnail = url;
+
+            // Update the recording in the store
+            const updateRequest = store.put(recording);
+            updateRequest.onsuccess = () => {
+              console.log('Thumbnail added to recording');
+              resolve();
+            };
+            updateRequest.onerror = (event) => {
+              console.error('Error adding thumbnail:', event.target.error);
+              reject('Failed to add thumbnail');
+            };
+          };
+
+          getRequest.onerror = (event) => {
+            console.error(
+              'Error fetching recording for thumbnail:',
+              event.target.error
+            );
+            reject('Failed to fetch recording');
+          };
+        });
+      }
+
+      // Update recording in IndexedDB (for rename functionality)
+      function updateRecordingInDB(id, newFilename) {
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject('Database not initialized');
+            return;
+          }
+
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+
+          // First get the current recording
+          const getRequest = store.get(id);
+
+          getRequest.onsuccess = () => {
+            const recording = getRequest.result;
+            if (!recording) {
+              reject('Recording not found');
+              return;
+            }
+
+            // Update the filename
+            recording.filename = newFilename;
+
+            // Put the updated recording back in the store
+            const updateRequest = store.put(recording);
+
+            updateRequest.onsuccess = () => {
+              console.log('Recording renamed in IndexedDB');
+              resolve();
+            };
+
+            updateRequest.onerror = (event) => {
+              console.error('Error renaming recording:', event.target.error);
+              reject('Failed to rename recording');
+            };
+          };
+
+          getRequest.onerror = (event) => {
+            console.error(
+              'Error fetching recording to rename:',
+              event.target.error
+            );
+            reject('Failed to fetch recording for renaming');
           };
         });
       }
@@ -534,40 +786,50 @@
       function updateRecordingsList() {
         loadRecordingsFromDB()
           .then((recordings) => {
-            const recordingsList = document.getElementById("recordings-list");
-            recordingsList.innerHTML = "";
+            const recordingsList = document.getElementById('recordings-list');
+            recordingsList.innerHTML = '';
 
             if (recordings.length === 0) {
-              recordingsList.innerHTML = "<p>No saved recordings found.</p>";
+              recordingsList.innerHTML = '<p>No saved recordings found.</p>';
               return;
             }
 
             recordings.forEach((recording) => {
               const url = URL.createObjectURL(recording.blob);
-              const item = document.createElement("div");
-              item.className = "recording-item";
+              const item = document.createElement('div');
+              item.className = 'recording-item flex-column';
 
               const qualityLabel =
-                recording.quality === "standard"
-                  ? "Standard (720p)"
-                  : recording.quality === "fullhd"
-                  ? "Full HD (1080p)"
-                  : recording.quality === "ultrahd"
-                  ? "Ultra HD (4K)"
-                  : "Unknown";
+                recording.quality === 'standard'
+                  ? 'Standard (720p)'
+                  : recording.quality === 'fullhd'
+                  ? 'Full HD (1080p)'
+                  : recording.quality === 'ultrahd'
+                  ? 'Ultra HD (4K)'
+                  : 'Unknown';
 
               const date = new Date(recording.date);
               const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 
+              // Use the actual thumbnail if available, otherwise use a placeholder
+              const thumbnailSrc =
+                recording.thumbnail ||
+                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
               item.innerHTML = `
-              <div class="recording-info">
-                <strong>${recording.filename}</strong><br>
-                <span>Recorded: ${formattedDate}</span><br>
-                <span>Quality: ${qualityLabel}</span>
+              <div class="recording-content">
+                <img src="${thumbnailSrc}" 
+                  class="recording-thumbnail" data-id="${recording.id}" alt="Thumbnail">
+                <div class="recording-info">
+                  <strong class="recording-name">${recording.filename}</strong>
+                  <span>Recorded: ${formattedDate}</span>
+                  <span>Quality: ${qualityLabel}</span>
+                </div>
               </div>
               <div class="recording-actions">
                 <button class="play-btn" data-url="${url}"><i class="fas fa-play"></i> Play</button>
                 <button class="download-btn" data-url="${url}" data-filename="${recording.filename}"><i class="fas fa-download"></i> Download</button>
+                <button class="rename-btn" data-id="${recording.id}" data-filename="${recording.filename}"><i class="fas fa-edit"></i> Rename</button>
                 <button class="delete-btn" data-id="${recording.id}"><i class="fas fa-trash"></i> Delete</button>
               </div>
             `;
@@ -575,17 +837,17 @@
               recordingsList.appendChild(item);
 
               // Add event listeners
-              item.querySelector(".play-btn").addEventListener("click", () => {
+              item.querySelector('.play-btn').addEventListener('click', () => {
                 preview.src = url;
-                preview.style.display = "block";
+                preview.style.display = 'block';
                 preview.muted = false;
                 preview.play();
               });
 
               item
-                .querySelector(".download-btn")
-                .addEventListener("click", () => {
-                  const a = document.createElement("a");
+                .querySelector('.download-btn')
+                .addEventListener('click', () => {
+                  const a = document.createElement('a');
                   a.href = url;
                   a.download = recording.filename;
                   document.body.appendChild(a);
@@ -596,51 +858,85 @@
                 });
 
               item
-                .querySelector(".delete-btn")
-                .addEventListener("click", () => {
+                .querySelector('.delete-btn')
+                .addEventListener('click', () => {
                   deleteRecordingFromDB(recording.id)
                     .then(() => {
                       URL.revokeObjectURL(url);
                       updateRecordingsList();
                     })
                     .catch((error) =>
-                      console.error("Error deleting recording:", error)
+                      console.error('Error deleting recording:', error)
                     );
+                });
+
+              // Add rename functionality
+              item
+                .querySelector('.rename-btn')
+                .addEventListener('click', () => {
+                  const id = parseInt(
+                    item.querySelector('.rename-btn').dataset.id
+                  );
+                  const currentName =
+                    item.querySelector('.rename-btn').dataset.filename;
+
+                  // Show prompt for new name
+                  const newName = prompt(
+                    'Enter new name for the recording:',
+                    currentName
+                  );
+
+                  // If user didn't cancel and provided a name
+                  if (newName && newName.trim() !== '') {
+                    // Add .webm extension if it doesn't have it
+                    const finalName = newName.toLowerCase().endsWith('.webm')
+                      ? newName
+                      : `${newName}.webm`;
+
+                    updateRecordingInDB(id, finalName)
+                      .then(() => {
+                        console.log('Recording renamed successfully');
+                        updateRecordingsList(); // Refresh the UI
+                      })
+                      .catch((error) =>
+                        console.error('Error renaming recording:', error)
+                      );
+                  }
                 });
             });
           })
           .catch((error) =>
-            console.error("Error updating recordings list:", error)
+            console.error('Error updating recordings list:', error)
           );
       }
 
       // Initialize database on page load
-      window.addEventListener("DOMContentLoaded", () => {
+      window.addEventListener('DOMContentLoaded', () => {
         initIndexedDB()
           .then(() => {
             updateRecordingsList();
           })
           .catch((error) => {
-            console.error("Failed to initialize IndexedDB:", error);
-            document.getElementById("recordings-list").innerHTML =
-              "<p>Could not access local storage. Your recordings will not be saved between sessions.</p>";
+            console.error('Failed to initialize IndexedDB:', error);
+            document.getElementById('recordings-list').innerHTML =
+              '<p>Could not access local storage. Your recordings will not be saved between sessions.</p>';
           });
       });
 
       // Function to generate timestamped filename
       function generateFilename() {
         const now = new Date();
-        const date = now.toISOString().split("T")[0];
-        const time = now.toTimeString().split(" ")[0].replace(/:/g, "-");
+        const date = now.toISOString().split('T')[0];
+        const time = now.toTimeString().split(' ')[0].replace(/:/g, '-');
         return `recording-${date}-${time}.webm`;
       }
 
       // Helper function to get video constraints based on quality
       function getVideoConstraints(quality) {
         switch (quality) {
-          case "ultrahd":
+          case 'ultrahd':
             return { width: { ideal: 3840 }, height: { ideal: 2160 } };
-          case "fullhd":
+          case 'fullhd':
             return { width: { ideal: 1920 }, height: { ideal: 1080 } };
           default: // standard
             return { width: { ideal: 1280 }, height: { ideal: 720 } };
@@ -652,18 +948,18 @@
         const options = {};
 
         // Try to use VP9 codec if supported
-        if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) {
-          options.mimeType = "video/webm;codecs=vp9";
-        } else if (MediaRecorder.isTypeSupported("video/webm")) {
-          options.mimeType = "video/webm";
+        if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+          options.mimeType = 'video/webm;codecs=vp9';
+        } else if (MediaRecorder.isTypeSupported('video/webm')) {
+          options.mimeType = 'video/webm';
         }
 
         // Set bitrate based on quality
         switch (quality) {
-          case "ultrahd":
+          case 'ultrahd':
             options.videoBitsPerSecond = 6000000; // 6 Mbps
             break;
-          case "fullhd":
+          case 'fullhd':
             options.videoBitsPerSecond = 2500000; // 2.5 Mbps
             break;
           default: // standard
@@ -673,14 +969,14 @@
         return options;
       }
 
-      const startBtn = document.getElementById("startBtn");
-      const stopBtn = document.getElementById("stopBtn");
-      const downloadBtn = document.getElementById("downloadBtn");
-      const preview = document.getElementById("preview");
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const downloadBtn = document.getElementById('downloadBtn');
+      const preview = document.getElementById('preview');
 
       startBtn.onclick = async () => {
         // Get the selected quality
-        const quality = document.getElementById("quality").value;
+        const quality = document.getElementById('quality').value;
 
         // Set constraints based on quality selection
         const videoConstraints = getVideoConstraints(quality);
@@ -692,7 +988,7 @@
 
         preview.muted = true; // Mute the preview to avoid feedback
         preview.srcObject = stream;
-        preview.style.display = "block";
+        preview.style.display = 'block';
 
         recordedChunks = [];
 
@@ -707,13 +1003,13 @@
         };
 
         mediaRecorder.onstop = function () {
-          recordingBlob = new Blob(recordedChunks, { type: "video/webm" });
+          recordingBlob = new Blob(recordedChunks, { type: 'video/webm' });
           recordingUrl = URL.createObjectURL(recordingBlob);
           recordingFilename = generateFilename();
-          recordingQuality = document.getElementById("quality").value;
+          recordingQuality = document.getElementById('quality').value;
 
           // Automatically download the recording
-          const a = document.createElement("a");
+          const a = document.createElement('a');
           a.href = recordingUrl;
           a.download = recordingFilename;
           document.body.appendChild(a);
@@ -725,7 +1021,7 @@
           // Switch from live preview to recorded video preview
           preview.srcObject = null;
           preview.src = recordingUrl;
-          preview.style.display = "block";
+          preview.style.display = 'block';
           preview.muted = false; // Unmute when showing the recorded video
 
           // Enable the download button
@@ -734,18 +1030,18 @@
           // Save recording to IndexedDB
           saveRecordingToDB(recordingBlob, recordingFilename, recordingQuality)
             .then(() => {
-              console.log("Recording saved successfully");
+              console.log('Recording saved successfully');
               updateRecordingsList();
             })
             .catch((error) => {
-              console.error("Error saving recording:", error);
+              console.error('Error saving recording:', error);
             });
         };
 
         // Show recording indicator
         const recordingIndicator =
-          document.getElementById("recordingIndicator");
-        recordingIndicator.style.display = "flex";
+          document.getElementById('recordingIndicator');
+        recordingIndicator.style.display = 'flex';
 
         mediaRecorder.start();
         startBtn.disabled = true;
@@ -757,7 +1053,7 @@
         stream.getTracks().forEach((track) => track.stop());
 
         // Hide recording indicator
-        document.getElementById("recordingIndicator").style.display = "none";
+        document.getElementById('recordingIndicator').style.display = 'none';
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
@@ -765,7 +1061,7 @@
 
       downloadBtn.onclick = () => {
         if (recordingBlob && recordingUrl) {
-          const a = document.createElement("a");
+          const a = document.createElement('a');
           a.href = recordingUrl;
           a.download = recordingFilename;
           document.body.appendChild(a);
