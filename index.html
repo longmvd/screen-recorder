@@ -391,6 +391,23 @@
                 <option value="ultrahd">Ultra HD (4K) if supported</option>
               </select>
             </div>
+            <div class="quality-selector">
+              <label for="framerate">Frame Rate:</label>
+              <select id="framerate">
+                <option value="30">30 FPS</option>
+                <option selected="60">60 FPS</option>
+                <option value="90">90 FPS</option>
+                <option value="120">120 FPS</option>
+                <option value="144">144 FPS</option>
+              </select>
+            </div>
+            <div class="quality-selector">
+              <label for="format">File Format:</label>
+              <select id="format">
+                <option value="webm" selected>WebM</option>
+                <!-- <option value="mp4">MP4</option> -->
+              </select>
+            </div>
             <div class="flex gap-12">
               <button id="startBtn"><i class="fas fa-play"></i> Start</button>
               <button id="stopBtn" disabled>
@@ -466,7 +483,7 @@
       }
 
       // Save recording to IndexedDB
-      function saveRecordingToDB(blob, filename, quality) {
+      function saveRecordingToDB(blob, filename, quality, frameRate) {
         return new Promise((resolve, reject) => {
           if (!db) {
             reject('Database not initialized');
@@ -484,6 +501,7 @@
                 filename: filename,
                 date: new Date(),
                 quality: quality,
+                frameRate: frameRate,
                 type: blob.type,
                 thumbnail: thumbnailUrl, // Store the thumbnail with the recording
               };
@@ -515,6 +533,7 @@
                 filename: filename,
                 date: new Date(),
                 quality: quality,
+                frameRate: frameRate,
                 type: blob.type,
               };
 
@@ -808,6 +827,11 @@
                   ? 'Ultra HD (4K)'
                   : 'Unknown';
 
+              // Determine format from filename or MIME type
+              const format = recording.filename.toLowerCase().endsWith('.mp4')
+                ? 'MP4'
+                : 'WebM';
+
               const date = new Date(recording.date);
               const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 
@@ -819,18 +843,30 @@
               item.innerHTML = `
               <div class="recording-content">
                 <img src="${thumbnailSrc}" 
-                  class="recording-thumbnail" data-id="${recording.id}" alt="Thumbnail">
+                  class="recording-thumbnail" data-id="${
+                    recording.id
+                  }" alt="Thumbnail">
                 <div class="recording-info">
                   <strong class="recording-name">${recording.filename}</strong>
                   <span>Recorded: ${formattedDate}</span>
-                  <span>Quality: ${qualityLabel}</span>
+              <span>Quality: ${qualityLabel} | Format: ${format} | ${
+                recording.frameRate || '30'
+              } FPS</span>
                 </div>
               </div>
               <div class="recording-actions">
                 <button class="play-btn" data-url="${url}"><i class="fas fa-play"></i> Play</button>
-                <button class="download-btn" data-url="${url}" data-filename="${recording.filename}"><i class="fas fa-download"></i> Download</button>
-                <button class="rename-btn" data-id="${recording.id}" data-filename="${recording.filename}"><i class="fas fa-edit"></i> Rename</button>
-                <button class="delete-btn" data-id="${recording.id}"><i class="fas fa-trash"></i> Delete</button>
+                <button class="download-btn" data-url="${url}" data-filename="${
+                recording.filename
+              }"><i class="fas fa-download"></i> Download</button>
+                <button class="rename-btn" data-id="${
+                  recording.id
+                }" data-filename="${
+                recording.filename
+              }"><i class="fas fa-edit"></i> Rename</button>
+                <button class="delete-btn" data-id="${
+                  recording.id
+                }"><i class="fas fa-trash"></i> Delete</button>
               </div>
             `;
 
@@ -888,10 +924,14 @@
 
                   // If user didn't cancel and provided a name
                   if (newName && newName.trim() !== '') {
-                    // Add .webm extension if it doesn't have it
-                    const finalName = newName.toLowerCase().endsWith('.webm')
+                    // Check file extension from the current filename
+                    const isMP4 = currentName.toLowerCase().endsWith('.mp4');
+                    const extension = isMP4 ? '.mp4' : '.webm';
+
+                    // Add appropriate extension if it doesn't have it
+                    const finalName = newName.toLowerCase().endsWith(extension)
                       ? newName
-                      : `${newName}.webm`;
+                      : `${newName}${extension}`;
 
                     updateRecordingInDB(id, finalName)
                       .then(() => {
@@ -928,30 +968,62 @@
         const now = new Date();
         const date = now.toISOString().split('T')[0];
         const time = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-        return `recording-${date}-${time}.webm`;
+        const format = document.getElementById('format').value;
+        const extension = format === 'mp4' ? 'mp4' : 'webm';
+        return `recording-${date}-${time}.${extension}`;
       }
 
       // Helper function to get video constraints based on quality
-      function getVideoConstraints(quality) {
+      function getVideoConstraints(quality, frameRate) {
+        let constraints;
+
         switch (quality) {
           case 'ultrahd':
-            return { width: { ideal: 3840 }, height: { ideal: 2160 } };
+            constraints = { width: { ideal: 3840 }, height: { ideal: 2160 } };
+            break;
           case 'fullhd':
-            return { width: { ideal: 1920 }, height: { ideal: 1080 } };
+            constraints = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+            break;
           default: // standard
-            return { width: { ideal: 1280 }, height: { ideal: 720 } };
+            constraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
         }
+
+        // Add frame rate constraint
+        constraints.frameRate = { ideal: parseInt(frameRate) };
+
+        return constraints;
       }
 
-      // Helper function to get recorder options based on quality
+      // Helper function to get recorder options based on quality and format
       function getMediaRecorderOptions(quality) {
         const options = {};
+        const format = document.getElementById('format').value;
 
-        // Try to use VP9 codec if supported
-        if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
-          options.mimeType = 'video/webm;codecs=vp9';
-        } else if (MediaRecorder.isTypeSupported('video/webm')) {
-          options.mimeType = 'video/webm';
+        // Set MIME type based on format and browser support
+        if (format === 'mp4') {
+          // Try to use MP4 with H.264 codec if supported
+          if (MediaRecorder.isTypeSupported('video/mp4;codecs=h264')) {
+            options.mimeType = 'video/mp4;codecs=h264';
+          } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+            options.mimeType = 'video/mp4';
+          } else {
+            // Fallback to WebM if MP4 is not supported
+            console.warn(
+              'MP4 format not supported by this browser, falling back to WebM'
+            );
+            if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+              options.mimeType = 'video/webm;codecs=vp9';
+            } else if (MediaRecorder.isTypeSupported('video/webm')) {
+              options.mimeType = 'video/webm';
+            }
+          }
+        } else {
+          // WebM format (default)
+          if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+            options.mimeType = 'video/webm;codecs=vp9';
+          } else if (MediaRecorder.isTypeSupported('video/webm')) {
+            options.mimeType = 'video/webm';
+          }
         }
 
         // Set bitrate based on quality
@@ -975,11 +1047,12 @@
       const preview = document.getElementById('preview');
 
       startBtn.onclick = async () => {
-        // Get the selected quality
+        // Get the selected quality and frame rate
         const quality = document.getElementById('quality').value;
+        const frameRate = document.getElementById('framerate').value;
 
-        // Set constraints based on quality selection
-        const videoConstraints = getVideoConstraints(quality);
+        // Set constraints based on quality and frame rate selections
+        const videoConstraints = getVideoConstraints(quality, frameRate);
 
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: videoConstraints,
@@ -1003,10 +1076,16 @@
         };
 
         mediaRecorder.onstop = function () {
-          recordingBlob = new Blob(recordedChunks, { type: 'video/webm' });
+          const format = document.getElementById('format').value;
+          const mimeType = format === 'mp4' ? 'video/mp4' : 'video/webm';
+
+          recordingBlob = new Blob(recordedChunks, { type: mimeType });
           recordingUrl = URL.createObjectURL(recordingBlob);
           recordingFilename = generateFilename();
           recordingQuality = document.getElementById('quality').value;
+
+          // Store format for future reference
+          recordingFormat = format;
 
           // Automatically download the recording
           const a = document.createElement('a');
@@ -1027,8 +1106,16 @@
           // Enable the download button
           downloadBtn.disabled = false;
 
+          // Get the selected frame rate
+          const recordingFrameRate = document.getElementById('framerate').value;
+
           // Save recording to IndexedDB
-          saveRecordingToDB(recordingBlob, recordingFilename, recordingQuality)
+          saveRecordingToDB(
+            recordingBlob,
+            recordingFilename,
+            recordingQuality,
+            recordingFrameRate
+          )
             .then(() => {
               console.log('Recording saved successfully');
               updateRecordingsList();
