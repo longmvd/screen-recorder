@@ -447,10 +447,12 @@
       let recordingFilename;
       let recordingQuality;
       let db;
+      let tempKey;
+      let thumbnailUrlGlobal;
 
       // Initialize IndexedDB
       const DB_NAME = 'ScreenRecorderDB';
-      const DB_VERSION = 1;
+      const DB_VERSION = 2;
       const STORE_NAME = 'recordings';
 
       function initIndexedDB() {
@@ -473,10 +475,45 @@
             if (!db.objectStoreNames.contains(STORE_NAME)) {
               const store = db.createObjectStore(STORE_NAME, {
                 keyPath: 'id',
-                autoIncrement: true,
+                autoIncrement: false,
               });
               store.createIndex('date', 'date', { unique: false });
               console.log('Object store created');
+            } else {
+              const transaction = event.target.transaction; // Use the upgrade transaction
+
+              // 1. Get a reference to the old store
+              const oldStore = transaction.objectStore(STORE_NAME);
+              const oldData = [];
+
+              // 2. Read all data from the old store
+              oldStore.openCursor().onsuccess = function (event) {
+                const cursor = event.target.result;
+                if (cursor) {
+                  oldData.push(cursor.value);
+                  cursor.continue();
+                } else {
+                  // This part runs after all data has been read
+
+                  // 3. Delete the old object store
+                  db.deleteObjectStore(STORE_NAME);
+
+                  // 4. Create the new object store
+                  const newStore = db.createObjectStore(STORE_NAME, {
+                    keyPath: 'id',
+                  });
+                  newStore.createIndex('date', 'date', { unique: false });
+
+                  // 5. Populate the new store with the old data, adding a GUID to each item
+                  oldData.forEach(function (item) {
+                    // The old integer `id` is now gone, replaced by a new GUID
+                    item.id = generateUUID();
+                    newStore.add(item);
+                  });
+
+                  console.log('Data migration complete! 👍');
+                }
+              };
             }
           };
         });
@@ -484,19 +521,29 @@
 
       // Save recording to IndexedDB
       function saveRecordingToDB(blob, filename, quality, frameRate) {
+        if (!frameRate) {
+          const recordingFrameRate = document.getElementById('framerate').value;
+          frameRate = recordingFrameRate;
+        }
         return new Promise((resolve, reject) => {
           if (!db) {
             reject('Database not initialized');
             return;
           }
+          tempKey = generateUUID();
 
           // Generate thumbnail first
           generateThumbnail(blob)
             .then((thumbnailUrl) => {
+              if (!thumbnailUrlGlobal) {
+                thumbnailUrlGlobal = thumbnailUrl;
+              }
+
               const transaction = db.transaction([STORE_NAME], 'readwrite');
               const store = transaction.objectStore(STORE_NAME);
 
               const recording = {
+                id: tempKey,
                 blob: blob,
                 filename: filename,
                 date: new Date(),
@@ -508,8 +555,8 @@
 
               const request = store.add(recording);
 
-              request.onsuccess = () => {
-                console.log('Recording saved to IndexedDB with thumbnail');
+              request.onsuccess = (event) => {
+                tempKey = request.result;
                 resolve(request.result); // Returns the key
               };
 
@@ -529,6 +576,7 @@
               const store = transaction.objectStore(STORE_NAME);
 
               const recording = {
+                id: tempKey,
                 blob: blob,
                 filename: filename,
                 date: new Date(),
@@ -539,7 +587,8 @@
 
               const request = store.add(recording);
 
-              request.onsuccess = () => {
+              request.onsuccess = (event) => {
+                tempKey = request.result;
                 console.log('Recording saved to IndexedDB without thumbnail');
                 resolve(request.result);
               };
@@ -552,6 +601,107 @@
         });
       }
 
+      function updateRecordingToDB(id, blob, filename, quality, frameRate) {
+        if (!frameRate) {
+          const recordingFrameRate = document.getElementById('framerate').value;
+          frameRate = recordingFrameRate;
+        }
+
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject('Database not initialized');
+            return;
+          }
+
+          if (thumbnailUrlGlobal) {
+            handleUpdateRecording(
+              id,
+              blob,
+              filename,
+              quality,
+              frameRate,
+              thumbnailUrlGlobal,
+              resolve,
+              reject
+            );
+          } else {
+            generateThumbnail(blob)
+              .then((thumbnailUrl) => {
+                handleUpdateRecording(
+                  id,
+                  blob,
+                  filename,
+                  quality,
+                  frameRate,
+                  thumbnailUrl,
+                  resolve,
+                  reject
+                );
+                thumbnailUrlGlobal = thumbnailUrl;
+              })
+              .catch((error) => {
+                console.error(
+                  'Error generating thumbnail, saving without it:',
+                  error
+                );
+                handleUpdateRecording(
+                  id,
+                  blob,
+                  filename,
+                  quality,
+                  frameRate,
+                  null,
+                  resolve,
+                  reject
+                );
+              });
+          }
+          // Generate thumbnail first
+        });
+      }
+
+      function handleUpdateRecording(
+        id,
+        blob,
+        filename,
+        quality,
+        frameRate,
+        thumbnailUrl,
+        resolve,
+        reject
+      ) {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        // First get the current recording
+        const getRequest = store.get(id);
+
+        getRequest.onsuccess = (event) => {
+          const recording = event.target.result;
+          const newRecording = {
+            ...recording,
+            blob: blob,
+            filename: filename,
+            date: new Date(),
+            quality: quality,
+            frameRate: frameRate,
+            type: blob.type,
+            thumbnail: thumbnailUrl, // Store the thumbnail with the recording
+          };
+
+          const updateRequest = store.put(newRecording);
+          updateRequest.onsuccess = (event) => {
+            resolve();
+          };
+          updateRequest.onerror = (event) => {
+            console.error(
+              'Error updating recording in IndexedDB:',
+              event.target.error
+            );
+            reject('Failed to update recording');
+          };
+        };
+      }
       // Load recordings from IndexedDB
       function loadRecordingsFromDB() {
         return new Promise((resolve, reject) => {
@@ -842,7 +992,7 @@
 
               item.innerHTML = `
               <div class="recording-content">
-                <img src="${thumbnailSrc}" 
+                <img src="${thumbnailSrc}"
                   class="recording-thumbnail" data-id="${
                     recording.id
                   }" alt="Thumbnail">
@@ -1048,9 +1198,9 @@
 
       startBtn.onclick = async () => {
         // Get the selected quality and frame rate
+        tempKey = null;
         const quality = document.getElementById('quality').value;
         const frameRate = document.getElementById('framerate').value;
-
         // Set constraints based on quality and frame rate selections
         const videoConstraints = getVideoConstraints(quality, frameRate);
 
@@ -1072,21 +1222,34 @@
         mediaRecorder.ondataavailable = function (event) {
           if (event.data.size > 0) {
             recordedChunks.push(event.data);
+            // console.log(recordedChunks.length);
+            prepareVideo();
+            const recordingFrameRate =
+              document.getElementById('framerate').value;
+
+            if (!tempKey) {
+              console.log('Saving new recording');
+              saveRecordingToDB(
+                recordingBlob,
+                recordingFilename,
+                recordingQuality,
+                recordingFrameRate
+              );
+            } else {
+              // console.log('Update existing recording');
+              updateRecordingToDB(
+                tempKey,
+                recordingBlob,
+                recordingFilename,
+                recordingQuality,
+                recordingFrameRate
+              );
+            }
           }
         };
 
         mediaRecorder.onstop = function () {
-          const format = document.getElementById('format').value;
-          const mimeType = format === 'mp4' ? 'video/mp4' : 'video/webm';
-
-          recordingBlob = new Blob(recordedChunks, { type: mimeType });
-          recordingUrl = URL.createObjectURL(recordingBlob);
-          recordingFilename = generateFilename();
-          recordingQuality = document.getElementById('quality').value;
-
-          // Store format for future reference
-          recordingFormat = format;
-
+          prepareVideo();
           // Automatically download the recording
           const a = document.createElement('a');
           a.href = recordingUrl;
@@ -1110,7 +1273,8 @@
           const recordingFrameRate = document.getElementById('framerate').value;
 
           // Save recording to IndexedDB
-          saveRecordingToDB(
+          updateRecordingToDB(
+            tempKey,
             recordingBlob,
             recordingFilename,
             recordingQuality,
@@ -1130,9 +1294,21 @@
           document.getElementById('recordingIndicator');
         recordingIndicator.style.display = 'flex';
 
-        mediaRecorder.start();
+        mediaRecorder.start(1000);
         startBtn.disabled = true;
         stopBtn.disabled = false;
+      };
+      const prepareVideo = () => {
+        const format = document.getElementById('format').value;
+        const mimeType = format === 'mp4' ? 'video/mp4' : 'video/webm';
+
+        recordingBlob = new Blob(recordedChunks, { type: mimeType });
+        recordingUrl = URL.createObjectURL(recordingBlob);
+        recordingFilename = generateFilename();
+        recordingQuality = document.getElementById('quality').value;
+
+        // Store format for future reference
+        recordingFormat = format;
       };
 
       stopBtn.onclick = () => {
@@ -1158,6 +1334,17 @@
           }, 100);
         }
       };
+
+      function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(
+          /[xy]/g,
+          function (c) {
+            const r = (Math.random() * 16) | 0,
+              v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          }
+        );
+      }
     </script>
   </body>
 </html>
