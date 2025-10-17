@@ -1145,6 +1145,42 @@
           isConnectedToServer = false;
           updateConnectionStatus(false);
         });
+
+        socket.on("reconnect", (attemptNumber) => {
+          console.log(`🔄 Reconnected after ${attemptNumber} attempts`);
+          if (mediaRecorder && mediaRecorder.state === "recording") {
+            console.warn(
+              "⚠️ Reconnected during recording - some chunks may have been lost"
+            );
+          }
+        });
+
+        socket.on("chunkAck", (data) => {
+          console.log(`✅ Chunk ${data.index} acknowledged by server`);
+        });
+
+        socket.on("chunkError", (data) => {
+          console.error(`❌ Chunk error from server:`, data.error);
+          console.error(`Failed at timestamp: ${new Date(data.timestamp).toISOString()}`);
+        });
+
+        socket.on("recordingError", (data) => {
+          console.error("❌ Recording error from server:", data);
+          
+          if (data.missingChunks && data.missingChunks.length > 0) {
+            alert(
+              `Recording incomplete!\n\nMissing chunks: ${data.missingChunks.join(", ")}\nTotal expected: ${data.totalChunks}\n\nThe recording cannot be finalized. Please try recording again.`
+            );
+          } else {
+            alert(`Recording failed: ${data.error}`);
+          }
+        });
+
+        socket.on("recordingReady", (data) => {
+          console.log("✅ Recording ready:", data);
+          console.log(`Download URL: ${data.downloadUrl}`);
+          console.log(`Duration: ${data.duration}s, Size: ${data.size} bytes`);
+        });
       }
 
       // Update connection status indicator
@@ -1156,6 +1192,33 @@
           console.log("🔴 Server connection: Offline (saving locally only)");
         }
       }
+
+      // Handle browser close/refresh during recording
+      window.addEventListener("beforeunload", (event) => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+          // Try to send stop event to server
+          if (isConnectedToServer && socket && currentRecordId) {
+            socket.emit("stop", { recordId: currentRecordId });
+            console.log("📤 Sent 'stop' event before page unload");
+          }
+
+          // Show warning to user
+          event.preventDefault();
+          event.returnValue =
+            "Recording in progress. Are you sure you want to leave? Your recording will be automatically saved.";
+          return event.returnValue;
+        }
+      });
+
+      // Also handle pagehide for better mobile support
+      window.addEventListener("pagehide", () => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+          if (isConnectedToServer && socket && currentRecordId) {
+            socket.emit("stop", { recordId: currentRecordId });
+            console.log("📤 Sent 'stop' event on page hide");
+          }
+        }
+      });
 
       // Initialize database on page load
       window.addEventListener("DOMContentLoaded", () => {
