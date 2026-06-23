@@ -438,7 +438,31 @@
         </div>
       </div>
     </div>
+    <script
+      src="https://cdn.socket.io/4.8.1/socket.io.min.js"
+      integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+"
+      crossorigin="anonymous"
+    ></script>
     <script>
+      const socket = io('ws://localhost:8000/recording', {
+        transports: ['websocket'],
+        namespace: { name: 'recording' },
+      });
+
+      function startSession(recordId) {
+        socket.emit('start', { recordId });
+      }
+
+      function sendChunk(recordId, blob) {
+        blob.arrayBuffer().then((buffer) => {
+          socket.emit('chunk', { recordId, chunk: buffer });
+        });
+      }
+
+      function stopSession(recordId) {
+        socket.emit('stop', { recordId });
+      }
+
       let mediaRecorder;
       let recordedChunks = [];
       let stream;
@@ -455,7 +479,7 @@
       const DB_VERSION = 2;
       const STORE_NAME = 'recordings';
 
-      function initIndexedDB() {
+      function openDB() {
         return new Promise((resolve, reject) => {
           const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -466,14 +490,19 @@
 
           request.onsuccess = (event) => {
             db = event.target.result;
-            console.log('IndexedDB initialized successfully');
+            // Listen for the connection closing unexpectedly
+            db.onclose = () => {
+              console.warn('IndexedDB connection closed unexpectedly, will reconnect on next use');
+              db = null;
+            };
+            console.log('IndexedDB connection opened successfully');
             resolve(db);
           };
 
           request.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-              const store = db.createObjectStore(STORE_NAME, {
+            const upgradeDb = event.target.result;
+            if (!upgradeDb.objectStoreNames.contains(STORE_NAME)) {
+              const store = upgradeDb.createObjectStore(STORE_NAME, {
                 keyPath: 'id',
                 autoIncrement: false,
               });
@@ -496,10 +525,10 @@
                   // This part runs after all data has been read
 
                   // 3. Delete the old object store
-                  db.deleteObjectStore(STORE_NAME);
+                  upgradeDb.deleteObjectStore(STORE_NAME);
 
                   // 4. Create the new object store
-                  const newStore = db.createObjectStore(STORE_NAME, {
+                  const newStore = upgradeDb.createObjectStore(STORE_NAME, {
                     keyPath: 'id',
                   });
                   newStore.createIndex('date', 'date', { unique: false });
@@ -519,148 +548,109 @@
         });
       }
 
+      // Get a valid DB connection, reconnecting if the previous one was closed
+      async function getDB() {
+        if (db) {
+          try {
+            // Test if the connection is still alive by attempting a transaction
+            db.transaction([STORE_NAME], 'readonly');
+            return db;
+          } catch (e) {
+            console.warn('IndexedDB connection stale, reconnecting...', e.message);
+            db = null;
+          }
+        }
+        return await openDB();
+      }
+
+      function initIndexedDB() {
+        return openDB();
+      }
+
       // Save recording to IndexedDB
-      function saveRecordingToDB(blob, filename, quality, frameRate) {
+      async function saveRecordingToDB(blob, filename, quality, frameRate) {
         if (!frameRate) {
           const recordingFrameRate = document.getElementById('framerate').value;
           frameRate = recordingFrameRate;
         }
-        return new Promise((resolve, reject) => {
-          if (!db) {
-            reject('Database not initialized');
-            return;
+        const activeDb = await getDB();
+        tempKey = generateUUID();
+        startSession(tempKey);
+
+        let thumbnailUrl = null;
+        try {
+          thumbnailUrl = await generateThumbnail(blob);
+          if (!thumbnailUrlGlobal) {
+            thumbnailUrlGlobal = thumbnailUrl;
           }
-          tempKey = generateUUID();
+        } catch (error) {
+          console.error('Error generating thumbnail, saving without it:', error);
+        }
 
-          // Generate thumbnail first
-          generateThumbnail(blob)
-            .then((thumbnailUrl) => {
-              if (!thumbnailUrlGlobal) {
-                thumbnailUrlGlobal = thumbnailUrl;
-              }
+        return new Promise((resolve, reject) => {
+          const transaction = activeDb.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
 
-              const transaction = db.transaction([STORE_NAME], 'readwrite');
-              const store = transaction.objectStore(STORE_NAME);
+          const recording = {
+            id: tempKey,
+            blob: blob,
+            filename: filename,
+            date: new Date(),
+            quality: quality,
+            frameRate: frameRate,
+            type: blob.type,
+            thumbnail: thumbnailUrl,
+          };
 
-              const recording = {
-                id: tempKey,
-                blob: blob,
-                filename: filename,
-                date: new Date(),
-                quality: quality,
-                frameRate: frameRate,
-                type: blob.type,
-                thumbnail: thumbnailUrl, // Store the thumbnail with the recording
-              };
+          const request = store.add(recording);
 
-              const request = store.add(recording);
+          request.onsuccess = (event) => {
+            tempKey = request.result;
+            resolve(request.result);
+          };
 
-              request.onsuccess = (event) => {
-                tempKey = request.result;
-                resolve(request.result); // Returns the key
-              };
-
-              request.onerror = (event) => {
-                console.error('Error saving recording:', event.target.error);
-                reject('Failed to save recording');
-              };
-            })
-            .catch((error) => {
-              console.error(
-                'Error generating thumbnail, saving without it:',
-                error
-              );
-
-              // If thumbnail generation fails, save without it
-              const transaction = db.transaction([STORE_NAME], 'readwrite');
-              const store = transaction.objectStore(STORE_NAME);
-
-              const recording = {
-                id: tempKey,
-                blob: blob,
-                filename: filename,
-                date: new Date(),
-                quality: quality,
-                frameRate: frameRate,
-                type: blob.type,
-              };
-
-              const request = store.add(recording);
-
-              request.onsuccess = (event) => {
-                tempKey = request.result;
-                console.log('Recording saved to IndexedDB without thumbnail');
-                resolve(request.result);
-              };
-
-              request.onerror = (event) => {
-                console.error('Error saving recording:', event.target.error);
-                reject('Failed to save recording');
-              };
-            });
+          request.onerror = (event) => {
+            console.error('Error saving recording:', event.target.error);
+            reject('Failed to save recording');
+          };
         });
       }
 
-      function updateRecordingToDB(id, blob, filename, quality, frameRate) {
+      async function updateRecordingToDB(id, blob, filename, quality, frameRate) {
         if (!frameRate) {
           const recordingFrameRate = document.getElementById('framerate').value;
           frameRate = recordingFrameRate;
         }
 
-        return new Promise((resolve, reject) => {
-          if (!db) {
-            reject('Database not initialized');
-            return;
+        let thumbnailUrl = thumbnailUrlGlobal;
+        if (!thumbnailUrl) {
+          try {
+            thumbnailUrl = await generateThumbnail(blob);
+            thumbnailUrlGlobal = thumbnailUrl;
+          } catch (error) {
+            console.error('Error generating thumbnail, saving without it:', error);
+            thumbnailUrl = null;
           }
+        }
 
-          if (thumbnailUrlGlobal) {
-            handleUpdateRecording(
-              id,
-              blob,
-              filename,
-              quality,
-              frameRate,
-              thumbnailUrlGlobal,
-              resolve,
-              reject
-            );
-          } else {
-            generateThumbnail(blob)
-              .then((thumbnailUrl) => {
-                handleUpdateRecording(
-                  id,
-                  blob,
-                  filename,
-                  quality,
-                  frameRate,
-                  thumbnailUrl,
-                  resolve,
-                  reject
-                );
-                thumbnailUrlGlobal = thumbnailUrl;
-              })
-              .catch((error) => {
-                console.error(
-                  'Error generating thumbnail, saving without it:',
-                  error
-                );
-                handleUpdateRecording(
-                  id,
-                  blob,
-                  filename,
-                  quality,
-                  frameRate,
-                  null,
-                  resolve,
-                  reject
-                );
-              });
-          }
-          // Generate thumbnail first
+        const activeDb = await getDB();
+        return new Promise((resolve, reject) => {
+          handleUpdateRecording(
+            activeDb,
+            id,
+            blob,
+            filename,
+            quality,
+            frameRate,
+            thumbnailUrl,
+            resolve,
+            reject
+          );
         });
       }
 
       function handleUpdateRecording(
+        activeDb,
         id,
         blob,
         filename,
@@ -670,7 +660,7 @@
         resolve,
         reject
       ) {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const transaction = activeDb.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
 
         // First get the current recording
@@ -703,14 +693,10 @@
         };
       }
       // Load recordings from IndexedDB
-      function loadRecordingsFromDB() {
+      async function loadRecordingsFromDB() {
+        const activeDb = await getDB();
         return new Promise((resolve, reject) => {
-          if (!db) {
-            reject('Database not initialized');
-            return;
-          }
-
-          const transaction = db.transaction([STORE_NAME], 'readonly');
+          const transaction = activeDb.transaction([STORE_NAME], 'readonly');
           const store = transaction.objectStore(STORE_NAME);
           const index = store.index('date');
           const request = index.openCursor(null, 'prev'); // Sort by date, newest first
@@ -735,14 +721,10 @@
       }
 
       // Delete recording from IndexedDB
-      function deleteRecordingFromDB(id) {
+      async function deleteRecordingFromDB(id) {
+        const activeDb = await getDB();
         return new Promise((resolve, reject) => {
-          if (!db) {
-            reject('Database not initialized');
-            return;
-          }
-
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const transaction = activeDb.transaction([STORE_NAME], 'readwrite');
           const store = transaction.objectStore(STORE_NAME);
           const request = store.delete(id);
 
@@ -860,14 +842,10 @@
       }
 
       // Update existing recording with thumbnail
-      function updateRecordingWithThumbnail(id, url) {
+      async function updateRecordingWithThumbnail(id, url) {
+        const activeDb = await getDB();
         return new Promise((resolve, reject) => {
-          if (!db) {
-            reject('Database not initialized');
-            return;
-          }
-
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const transaction = activeDb.transaction([STORE_NAME], 'readwrite');
           const store = transaction.objectStore(STORE_NAME);
           const getRequest = store.get(id);
 
@@ -904,14 +882,10 @@
       }
 
       // Update recording in IndexedDB (for rename functionality)
-      function updateRecordingInDB(id, newFilename) {
+      async function updateRecordingInDB(id, newFilename) {
+        const activeDb = await getDB();
         return new Promise((resolve, reject) => {
-          if (!db) {
-            reject('Database not initialized');
-            return;
-          }
-
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const transaction = activeDb.transaction([STORE_NAME], 'readwrite');
           const store = transaction.objectStore(STORE_NAME);
 
           // First get the current recording
@@ -1218,10 +1192,10 @@
         // Configure MediaRecorder with quality options
         const recorderOptions = getMediaRecorderOptions(quality);
         mediaRecorder = new MediaRecorder(stream, recorderOptions);
-
         mediaRecorder.ondataavailable = function (event) {
           if (event.data.size > 0) {
             recordedChunks.push(event.data);
+            sendChunk(tempKey, event.data);
             // console.log(recordedChunks.length);
             prepareVideo();
             const recordingFrameRate =
@@ -1320,6 +1294,7 @@
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
+        stopSession(tempKey);
       };
 
       downloadBtn.onclick = () => {
